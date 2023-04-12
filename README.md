@@ -1,0 +1,2 @@
+<h1 align="center">RLN on KZG</h1>
+<p align="center">Read explanation <a href="https://github.com/Rate-Limiting-Nullifier/rln-circuits-v2/blob/main/docs/README.mdhttps://zkresear.ch/t/rln-on-kzg-polynomial-commitment-scheme-cross-posted/114">here</a></p>
