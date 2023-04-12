@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ark-poly-commit = "0.3.0"
+ark-poly-commit = { git = "https://github.com/curryrasul/poly-commit" }
 ark-ec = "0.3.0"
 ark-bls12-381 = "0.3.0"
 ark-std = "0.3.0"
 ark-poly = "0.3.0"
+once_cell = "1.17.1"
