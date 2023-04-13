@@ -3,7 +3,7 @@
 #![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::type_complexity)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::SystemTime};
 
 use ark_bls12_381::*;
 use ark_ec::{AffineCurve, PairingEngine};
@@ -127,6 +127,8 @@ impl User {
     }
 
     fn register(&self, rln: &mut RLN) {
+        let cur_time = SystemTime::now();
+
         // [f(alpha)]
         let (comm, rand) = KZG::commit(&KEYS.0, &self.polynomial, None, None).unwrap();
 
@@ -137,9 +139,15 @@ impl User {
         let pubkey = self.pubkey();
 
         rln.register(comm, proof, pubkey);
+
+        println!(
+            "Registration time (milliseconds): {}",
+            cur_time.elapsed().unwrap().as_millis()
+        );
     }
 
     fn send(&self, message_hash: Fr, rln: &mut RLN) {
+        let cur_time = SystemTime::now();
         let evaluation = self.polynomial.evaluate(&message_hash);
         let proof = KZG::open(
             &KEYS.0,
@@ -148,6 +156,11 @@ impl User {
             &Randomness::<Fr, UniPoly_381>::empty(),
         )
         .expect("Cannot make proof");
+
+        println!(
+            "Send Message Time (microseconds): {}",
+            cur_time.elapsed().unwrap().as_micros()
+        );
 
         rln.new_message(self.pubkey(), message_hash, evaluation, proof);
     }
