@@ -1,14 +1,15 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
 #![allow(clippy::upper_case_acronyms)]
+#![allow(clippy::type_complexity)]
 
 use std::collections::HashMap;
 
 use ark_bls12_381::*;
-use ark_ec::PairingEngine;
+use ark_ec::{AffineCurve, PairingEngine};
 use ark_poly::{univariate::DensePolynomial, Polynomial, UVPolynomial};
-use ark_poly_commit::kzg10::*;
-use ark_std::test_rng;
+use ark_poly_commit::{kzg10::*, PCRandomness};
+use ark_std::{test_rng, UniformRand};
 
 use once_cell::sync::Lazy;
 
@@ -44,23 +45,72 @@ static KEYS: Lazy<(Powers<Bls12_381>, VerifierKey<Bls12_381>)> = Lazy::new(|| {
 
 struct RLN {
     limit: u8,
-    shares: HashMap<Commitment<Bls12_381>, Vec<Fr>>,
+    shares: HashMap<G1Projective, (Commitment<Bls12_381>, Vec<(Fr, Fr)>)>,
 }
 
 impl RLN {
     fn new(limit: u8) -> Self {
-        let rng = &mut test_rng();
-
         Self {
             limit,
             shares: HashMap::new(),
         }
     }
 
-    // fn register()
+    fn register(
+        &mut self,
+        comm: Commitment<Bls12_381>,
+        proof: Proof<Bls12_381>,
+        pubkey: G1Projective,
+    ) {
+        assert!(Self::pairing_check(comm, proof, pubkey, Fr::from(0)));
+        self.shares.insert(pubkey, (comm, vec![]));
+    }
 
-    fn add(&mut self) {
-        todo!()
+    fn pairing_check(
+        comm: Commitment<Bls12_381>,
+        proof: Proof<Bls12_381>,
+        pubkey: G1Projective,
+        point: Fr,
+    ) -> bool {
+        let inner = comm.0.into_projective() - pubkey;
+        let lhs = Bls12_381::pairing(inner, KEYS.1.h);
+
+        let inner = KEYS.1.beta_h.into_projective() - KEYS.1.h.mul(point);
+        let rhs = Bls12_381::pairing(proof.w, inner);
+
+        lhs == rhs
+    }
+
+    fn new_message(
+        &mut self,
+        pubkey: G1Projective,
+        message_hash: Fr,
+        evaluation: Fr,
+        proof: Proof<Bls12_381>,
+    ) {
+        let (comm, messages) = self.shares.get_mut(&pubkey).unwrap();
+        assert!(KZG::check(&KEYS.1, comm, message_hash, evaluation, &proof)
+            .expect("Wrong opening proof"));
+
+        messages.push((message_hash, evaluation));
+
+        if messages.len() > self.limit as usize {
+            let key = Self::recover_key([messages[0], messages[1]]);
+            let pubkey = KEYS.1.g.mul(key);
+            assert!(self.shares.get(&pubkey).is_some());
+
+            self.shares.remove(&pubkey).unwrap();
+        }
+    }
+
+    fn recover_key(shares: [(Fr, Fr); (EPOCH_LIMIT + 1) as usize]) -> Fr {
+        let (x1, y1) = shares[0];
+        let (x2, y2) = shares[1];
+
+        let numerator = y2 * x1 - y1 * x2;
+        let denominator = x1 - x2;
+
+        numerator / denominator
     }
 }
 
@@ -76,33 +126,52 @@ impl User {
         Self { polynomial }
     }
 
+    fn register(&self, rln: &mut RLN) {
+        // [f(alpha)]
+        let (comm, rand) = KZG::commit(&KEYS.0, &self.polynomial, None, None).unwrap();
+
+        // [psi(alpha)]
+        let proof = KZG::open(&KEYS.0, &self.polynomial, Fr::from(0), &rand).unwrap();
+
+        // [f(0)]
+        let pubkey = self.pubkey();
+
+        rln.register(comm, proof, pubkey);
+    }
+
+    fn send(&self, message_hash: Fr, rln: &mut RLN) {
+        let evaluation = self.polynomial.evaluate(&message_hash);
+        let proof = KZG::open(
+            &KEYS.0,
+            &self.polynomial,
+            message_hash,
+            &Randomness::<Fr, UniPoly_381>::empty(),
+        )
+        .expect("Cannot make proof");
+
+        rln.new_message(self.pubkey(), message_hash, evaluation, proof);
+    }
+
     fn secret(&self) -> Fr {
         self.polynomial.evaluate(&Fr::from(0))
     }
 
-    fn register(&self, rln: &mut RLN) {
-        let rng = &mut test_rng();
-        let (comm, rand) = KZG::commit(&KEYS.0, &self.polynomial, None, None).unwrap();
-
-        let proof = KZG::open(&KEYS.0, &self.polynomial, Fr::from(0), &rand).unwrap();
-
-        assert!(KZG::check(&KEYS.1, &comm, Fr::from(0), value, proof));
+    fn pubkey(&self) -> G1Projective {
+        KEYS.1.g.mul(self.secret())
     }
-
-    // fn send(&self, message: &str, rln: &mut RLN) {
-    //     rln.add();
-    //     todo!()
-    // }
 }
 
 fn main() {
+    let rng = &mut test_rng();
+
     let mut rln = RLN::new(EPOCH_LIMIT);
     let user = User::new(DEGREE);
 
-    println!("User's secret is {:?}", user.secret());
-
     user.register(&mut rln);
+    assert!(rln.shares.get(&user.pubkey()).is_some());
 
-    // user.send("Hello", &mut rln);
-    // user.send("I'm spammer", &mut rln);
+    user.send(Fr::rand(rng), &mut rln);
+    user.send(Fr::rand(rng), &mut rln);
+
+    assert!(rln.shares.get(&user.pubkey()).is_none());
 }
