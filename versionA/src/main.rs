@@ -112,7 +112,7 @@ impl RLN {
         matrix.push(vec_x.clone());
 
         for i in 2..size {
-            let next_row = matrix[i-1].iter().zip(vec_x.clone()).map(|(&a, b)| {a * b}).collect();
+            let next_row = matrix[i-1].iter().zip(&vec_x).map(|(&a, &b)| {a * b}).collect();
             matrix.push(next_row);
         }
 
