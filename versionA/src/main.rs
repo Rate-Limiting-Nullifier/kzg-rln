@@ -16,7 +16,7 @@ use once_cell::sync::Lazy;
 type UniPoly_381 = DensePolynomial<<Bls12_381 as PairingEngine>::Fr>;
 type KZG = KZG10<Bls12_381, UniPoly_381>;
 
-const EPOCH_LIMIT: u8 = 1;
+const EPOCH_LIMIT: u8 = 3;
 const DEGREE: usize = EPOCH_LIMIT as usize;
 
 static KEYS: Lazy<(Powers<Bls12_381>, VerifierKey<Bls12_381>)> = Lazy::new(|| {
@@ -95,7 +95,7 @@ impl RLN {
         messages.push((message_hash, evaluation));
 
         if messages.len() > self.limit as usize {
-            let key = Self::recover_key([messages[0], messages[1]]);
+            let key = Self::recover_key(messages);
             let pubkey = KEYS.1.g.mul(key);
             assert!(self.shares.get(&pubkey).is_some());
 
@@ -103,15 +103,62 @@ impl RLN {
         }
     }
 
-    fn recover_key(shares: [(Fr, Fr); (EPOCH_LIMIT + 1) as usize]) -> Fr {
-        let (x1, y1) = shares[0];
-        let (x2, y2) = shares[1];
+    fn recover_key(shares: &Vec<(Fr, Fr)>) -> Fr {
+        let size = (EPOCH_LIMIT + 1) as usize;
+        let vec_x: Vec<Fr> = shares.iter().map(|a| {a.0}).collect();
+        let vec_y: Vec<Fr> = shares.iter().map(|a| {a.1}).collect();
 
-        let numerator = y2 * x1 - y1 * x2;
-        let denominator = x1 - x2;
+        let mut matrix: Vec<Vec<Fr>> = vec![vec![Fr::from(1); size]];
+        matrix.push(vec_x.clone());
+
+        for i in 2..size {
+            let next_row = matrix[i-1].iter().zip(vec_x.clone()).map(|(&a, b)| {a * b}).collect();
+            matrix.push(next_row);
+        }
+
+        let denominator = determinant(matrix.clone());
+        _ = std::mem::replace(&mut matrix[0], vec_y);
+        let numerator = determinant(matrix);
 
         numerator / denominator
     }
+}
+
+fn determinant(mut matrix: Vec<Vec<Fr>>) -> Fr {
+    let n = matrix.len();
+    let mut det = Fr::from(1);
+
+    for i in 0..n {
+        let mut pivot_row = i;
+        for j in (i + 1)..n {
+            if matrix[j][i] != Fr::from(0) {
+                pivot_row = j;
+                break;
+            }
+        }
+
+        if pivot_row != i {
+            matrix.swap(i, pivot_row);
+            det = -det;
+        }
+
+        let pivot = matrix[i][i];
+
+        if pivot == Fr::from(0) {
+            return Fr::from(0);
+        }
+
+        det *= pivot;
+
+        for j in (i + 1)..n {
+            let factor = matrix[j][i] / pivot;
+            for k in (i + 1)..n {
+                matrix[j][k] = matrix[j][k] - factor * matrix[i][k];
+            }
+        }
+    }
+
+    det
 }
 
 struct User {
@@ -183,8 +230,9 @@ fn main() {
     user.register(&mut rln);
     assert!(rln.shares.get(&user.pubkey()).is_some());
 
-    user.send(Fr::rand(rng), &mut rln);
-    user.send(Fr::rand(rng), &mut rln);
+    for _ in 0..EPOCH_LIMIT+1 {
+        user.send(Fr::rand(rng), &mut rln);
+    }
 
     assert!(rln.shares.get(&user.pubkey()).is_none());
 }
