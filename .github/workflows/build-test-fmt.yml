@@ -1,0 +1,28 @@
+name: Build-Test-Fmt
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-test-fmt:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    - run: rustup toolchain install stable --profile minimal
+    - uses: Swatinem/rust-cache@v2
+    
+    - name: Build
+      run: cargo build
+      
+    - name: Test
+      run: cargo test
+      
+    - name: Fmt
+      run: cargo fmt -- --check
+
+    - name: Clippy
+      run: cargo clippy -- --deny warnings
