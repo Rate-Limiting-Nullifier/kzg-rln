@@ -45,7 +45,7 @@ static KEYS: Lazy<(Powers<Bls12_381>, VerifierKey<Bls12_381>)> = Lazy::new(|| {
 
 struct RLN {
     limit: u8,
-    shares: HashMap<G1Projective, (Commitment<Bls12_381>, Vec<[Fr; 2]>)>,
+    shares: HashMap<G1Projective, (Commitment<Bls12_381>, Vec<(Fr, Fr)>)>,
 }
 
 impl RLN {
@@ -92,7 +92,7 @@ impl RLN {
         assert!(KZG::check(&KEYS.1, comm, message_hash, evaluation, &proof)
             .expect("Wrong opening proof"));
 
-        messages.push([message_hash, evaluation]);
+        messages.push((message_hash, evaluation));
 
         if messages.len() > self.limit as usize {
             let key = Self::recover_key(messages.to_vec());
@@ -103,10 +103,10 @@ impl RLN {
         }
     }
 
-    fn recover_key(shares: Vec<[Fr; 2]>) -> Fr {
+    fn recover_key(shares: Vec<(Fr, Fr)>) -> Fr {
         let size = (EPOCH_LIMIT + 1) as usize;
-        let vec_x: Vec<Fr> = shares.iter().map(|a| a[0]).collect();
-        let vec_y: Vec<Fr> = shares.iter().map(|a| a[1]).collect();
+        let vec_x: Vec<Fr> = shares.iter().map(|a| a.0).collect();
+        let vec_y: Vec<Fr> = shares.iter().map(|a| a.1).collect();
 
         let mut matrix: Vec<Vec<Fr>> = vec![vec![Fr::from(1); size]];
         matrix.push(vec_x.clone());
