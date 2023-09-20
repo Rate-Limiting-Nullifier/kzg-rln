@@ -95,7 +95,7 @@ impl RLN {
         messages.push((message_hash, evaluation));
 
         if messages.len() > self.limit as usize {
-            let key = Self::recover_key(messages.to_vec());
+            let key = Self::recover_key(messages);
             let pubkey = KEYS.1.g.mul(key);
             assert!(self.shares.get(&pubkey).is_some());
 
@@ -103,25 +103,25 @@ impl RLN {
         }
     }
 
-    fn recover_key(shares: Vec<(Fr, Fr)>) -> Fr {
+    fn recover_key(shares: &[(Fr, Fr)]) -> Fr {
         let size = (EPOCH_LIMIT + 1) as usize;
         let vec_x: Vec<Fr> = shares.iter().map(|a| a.0).collect();
         let vec_y: Vec<Fr> = shares.iter().map(|a| a.1).collect();
 
         let mut matrix: Vec<Vec<Fr>> = vec![vec![Fr::from(1); size]];
-        matrix.push(vec_x.clone());
+        matrix.push(vec_x);
 
         for i in 2..size {
             let next_row = matrix[i - 1]
                 .iter()
-                .zip(&vec_x)
+                .zip(&matrix[1])
                 .map(|(&a, &b)| a * b)
                 .collect();
             matrix.push(next_row);
         }
 
         let denominator = determinant(matrix.clone());
-        _ = std::mem::replace(&mut matrix[0], vec_y);
+        matrix[0] = vec_y;
         let numerator = determinant(matrix);
 
         numerator / denominator
